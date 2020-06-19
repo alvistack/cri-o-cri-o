@@ -3,9 +3,9 @@ GO ?= go
 export GOPROXY=https://proxy.golang.org
 export GOSUMDB=https://sum.golang.org
 
-GO_MOD_VENDOR := --mod=vendor
-GO_BUILD := GO111MODULE=on $(GO) build $(GO_MOD_VENDOR)
-GO_RUN := GO111MODULE=on $(GO) run $(GO_MOD_VENDOR)
+GO_MOD_VENDOR ?= --mod=vendor
+GO_BUILD ?= GO111MODULE=on $(GO) build $(GO_MOD_VENDOR)
+GO_RUN ?= GO111MODULE=on $(GO) run $(GO_MOD_VENDOR)
 
 PROJECT := github.com/cri-o/cri-o
 CRIO_INSTANCE := crio_dev
@@ -47,7 +47,6 @@ GO_MD2MAN ?= ${BUILD_BIN_PATH}/go-md2man
 GINKGO := ${BUILD_BIN_PATH}/ginkgo
 MOCKGEN := ${BUILD_BIN_PATH}/mockgen
 GIT_VALIDATION := ${BUILD_BIN_PATH}/git-validation
-RELEASE_TOOL := ${BUILD_BIN_PATH}/release-tool
 GOLANGCI_LINT := ${BUILD_BIN_PATH}/golangci-lint
 GO_MOD_OUTDATED := ${BUILD_BIN_PATH}/go-mod-outdated
 RELEASE_NOTES := ${BUILD_BIN_PATH}/release-notes
@@ -94,20 +93,27 @@ endif
 
 DEFAULTS_PATH := ""
 
+DATE_FMT = +'%Y-%m-%dT%H:%M:%SZ'
+ifdef SOURCE_DATE_EPOCH
+    BUILD_DATE ?= $(shell date -u -d "@$(SOURCE_DATE_EPOCH)" "$(DATE_FMT)" 2>/dev/null || date -u -r "$(SOURCE_DATE_EPOCH)" "$(DATE_FMT)" 2>/dev/null || date -u "$(DATE_FMT)")
+else
+    BUILD_DATE ?= $(shell date -u "$(DATE_FMT)")
+endif
+
 BASE_LDFLAGS = ${SHRINKFLAGS} \
 	-X ${PROJECT}/internal/pkg/criocli.DefaultsPath=${DEFAULTS_PATH} \
-	-X ${PROJECT}/internal/version.buildDate=$(shell date -u +'%Y-%m-%dT%H:%M:%SZ') \
+	-X ${PROJECT}/internal/version.buildDate=${BUILD_DATE} \
 	-X ${PROJECT}/internal/version.gitCommit=${COMMIT_NO} \
-	-X ${PROJECT}/internal/version.gitTreeState=${GIT_TREE_STATE} \
+	-X ${PROJECT}/internal/version.gitTreeState=${GIT_TREE_STATE}
 
-GO_LDFLAGS = -ldflags '${BASE_LDFLAGS} ${EXTRA_LDFLAGS}'
+LDFLAGS = -ldflags '${BASE_LDFLAGS} ${EXTRA_LDFLAGS}'
 
 TESTIMAGE_VERSION := master-1.3.6
 TESTIMAGE_REGISTRY := quay.io/crio
 TESTIMAGE_SCRIPT := scripts/build-test-image -r $(TESTIMAGE_REGISTRY) -v $(TESTIMAGE_VERSION)
 TESTIMAGE_NAME ?= $(shell $(TESTIMAGE_SCRIPT) -d)
 
-TESTIMAGE_NIX ?= $(TESTIMAGE_REGISTRY)/nix:1.3.0
+TESTIMAGE_NIX ?= $(TESTIMAGE_REGISTRY)/nix:1.4.0
 
 all: binaries crio.conf docs
 
@@ -141,7 +147,7 @@ lint: .gopathok ${GOLANGCI_LINT}
 	${GOLANGCI_LINT} run
 
 shellfiles: ${SHFMT}
-	$(eval SHELLFILES=$(shell ${SHFMT} -f . | grep -v vendor/ | grep -v hack))
+	$(eval SHELLFILES=$(shell ${SHFMT} -f . | grep -v vendor/))
 
 shfmt: shellfiles
 	${SHFMT} -w -i 4 -d ${SHELLFILES}
@@ -157,30 +163,27 @@ bin/pinns:
 	$(MAKE) -C pinns
 
 test/copyimg/copyimg: $(GO_FILES) .gopathok
-	$(GO_BUILD) $(GCFLAGS) $(GO_LDFLAGS) -tags "$(BUILDTAGS)" -o $@ $(PROJECT)/test/copyimg
+	$(GO_BUILD) $(GCFLAGS) $(LDFLAGS) -tags "$(BUILDTAGS)" -o $@ $(PROJECT)/test/copyimg
 
 test/checkseccomp/checkseccomp: $(GO_FILES) .gopathok
-	$(GO_BUILD) $(GCFLAGS) $(GO_LDFLAGS) -tags "$(BUILDTAGS)" -o $@ $(PROJECT)/test/checkseccomp
+	$(GO_BUILD) $(GCFLAGS) $(LDFLAGS) -tags "$(BUILDTAGS)" -o $@ $(PROJECT)/test/checkseccomp
 
 bin/crio: $(GO_FILES) .gopathok
-	$(GO_BUILD) $(GCFLAGS) $(GO_LDFLAGS) -tags "$(BUILDTAGS)" -o $@ $(PROJECT)/cmd/crio
+	$(GO_BUILD) $(GCFLAGS) $(LDFLAGS) -tags "$(BUILDTAGS)" -o $@ $(PROJECT)/cmd/crio
 
 bin/crio-status: $(GO_FILES) .gopathok
-	$(GO_BUILD) $(GCFLAGS) $(GO_LDFLAGS) -tags "$(BUILDTAGS)" -o $@ $(PROJECT)/cmd/crio-status
+	$(GO_BUILD) $(GCFLAGS) $(LDFLAGS) -tags "$(BUILDTAGS)" -o $@ $(PROJECT)/cmd/crio-status
 
 build-static:
 	$(CONTAINER_RUNTIME) run --rm -it -v $(shell pwd):/cri-o $(TESTIMAGE_NIX) sh -c \
 		"nix build -f cri-o/nix && \
 		mkdir -p cri-o/bin && \
-		cp result-bin/bin/crio-* cri-o/bin"
+		cp -r result/bin cri-o/bin/static"
 
 release-bundle: clean bin/pinns build-static docs crio.conf bundle
 
 crio.conf: bin/crio
 	./bin/crio -d "" --config="" $(CONF_OVERRIDES) config > crio.conf
-
-release-note: ${RELEASE_TOOL}
-	${RELEASE_TOOL} -n $(release)
 
 release-notes: ${RELEASE_NOTES}
 	${GO_RUN} ./scripts/release-notes \
@@ -216,7 +219,7 @@ bin/crio.cross.%: .gopathok .explicit_phony
 	TARGET="$*"; \
 	GOOS="$${TARGET%%.*}" \
 	GOARCH="$${TARGET##*.}" \
-	$(GO_BUILD) $(GO_LDFLAGS) -tags "containers_image_openpgp btrfs_noversion" -o "$@" $(PROJECT)/cmd/crio
+	$(GO_BUILD) $(LDFLAGS) -tags "containers_image_openpgp btrfs_noversion" -o "$@" $(PROJECT)/cmd/crio
 
 local-image:
 	$(TESTIMAGE_SCRIPT)
@@ -273,9 +276,6 @@ ${MOCKGEN}:
 ${GIT_VALIDATION}:
 	$(call go-build,./vendor/github.com/vbatts/git-validation)
 
-${RELEASE_TOOL}:
-	$(call go-build,./vendor/github.com/containerd/project/cmd/release-tool)
-
 ${RELEASE_NOTES}:
 	$(call go-build,./vendor/k8s.io/release/cmd/release-notes)
 
@@ -287,7 +287,7 @@ ${GO_MOD_OUTDATED}:
 
 ${GOLANGCI_LINT}:
 	export \
-		VERSION=v1.23.8 \
+		VERSION=v1.26.0 \
 		URL=https://raw.githubusercontent.com/golangci/golangci-lint \
 		BINDIR=${BUILD_BIN_PATH} && \
 	curl -sfL $$URL/$$VERSION/install.sh | sh -s $$VERSION
@@ -512,6 +512,17 @@ release-branch-forward:
 upload-artifacts:
 	./scripts/upload-artifacts
 
+bin/metrics-exporter:
+	$(GO_BUILD) -o $@ \
+		-ldflags '-linkmode external -extldflags "-static -lm"' \
+		-tags netgo \
+		$(PROJECT)/contrib/metrics-exporter
+
+metrics-exporter: bin/metrics-exporter
+	$(CONTAINER_RUNTIME) build . \
+		-f contrib/metrics-exporter/Containerfile \
+		-t quay.io/crio/metrics-exporter:latest
+
 .PHONY: \
 	.explicit_phony \
 	git-validation \
@@ -543,4 +554,6 @@ upload-artifacts:
 	vendor \
 	bin/pinns \
 	dependencies \
-	upload-artifacts
+	upload-artifacts \
+	bin/metrics-exporter \
+	metrics-exporter
