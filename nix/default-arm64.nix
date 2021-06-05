@@ -1,6 +1,8 @@
-{ system ? builtins.currentSystem }:
 let
   pkgs = (import ./nixpkgs.nix {
+    crossSystem = {
+      config = "aarch64-unknown-linux-gnu";
+    };
     config = {
       packageOverrides = pkg: {
         gpgme = (static pkg.gpgme);
@@ -27,7 +29,7 @@ let
           configureFlags = [
             "--enable-confdir=/etc"
             "--enable-usbdropdir=/var/lib/pcsc/drivers"
-            "--with-systemdsystemunitdir=${placeholder "bin"}/lib/systemd/system"
+            "--disable-libsystemd"
           ];
           buildInputs = [ pkgs.python3 pkgs.udev pkgs.dbus pkgs.systemd ];
         });
