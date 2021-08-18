@@ -1,0 +1,7 @@
+etc/crio
+etc/crio/crio.conf.d
+usr/share/containers
+usr/share/containers/oci
+usr/share/containers/oci/hooks.d
+usr/share/oci-umount
+usr/share/oci-umount/oci-umount.d
