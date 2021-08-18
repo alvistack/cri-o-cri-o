@@ -1,0 +1,14 @@
+etc/crictl.yaml
+etc/crio/crio.conf
+lib/systemd/system/crio-wipe.service
+lib/systemd/system/crio.service
+usr/bin/crio
+usr/bin/crio-status
+usr/bin/pinns
+usr/share/bash-completion/completions/crio
+usr/share/bash-completion/completions/crio-status
+usr/share/fish/completions/crio-status.fish
+usr/share/fish/completions/crio.fish
+usr/share/oci-umount/oci-umount.d/crio-umount.conf
+usr/share/zsh/site-functions/_crio
+usr/share/zsh/site-functions/_crio-status
