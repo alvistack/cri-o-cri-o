@@ -1,0 +1,5 @@
+cri-o (100:1.25.0-3) UNRELEASED; urgency=medium
+
+  * https://github.com/cri-o/cri-o/releases/tag/v1.25.0
+
+ -- Wong Hoi Sing Edison <hswong3i@gmail.com>  Sat, 17 Sep 2022 16:38:33 +0800
