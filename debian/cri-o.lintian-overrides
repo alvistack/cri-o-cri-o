@@ -1,0 +1,6 @@
+cri-o: copyright-without-copyright-notice
+cri-o: hardening-no-pie
+cri-o: initial-upload-closes-no-bugs
+cri-o: no-manual-page
+cri-o: statically-linked-binary
+cri-o: zero-byte-file-in-doc-directory
