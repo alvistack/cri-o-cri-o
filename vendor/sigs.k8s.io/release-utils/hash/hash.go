@@ -17,14 +17,16 @@ limitations under the License.
 package hash
 
 import (
+	"crypto/sha1"
 	"crypto/sha256"
 	"crypto/sha512"
 	"encoding/hex"
+	"errors"
+	"fmt"
 	"hash"
 	"io"
 	"os"
 
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 )
 
@@ -38,6 +40,11 @@ func SHA256ForFile(filename string) (string, error) {
 	return ForFile(filename, sha256.New())
 }
 
+// SHA1ForFile returns the hex-encoded sha1 hash for the provided filename.
+func SHA1ForFile(filename string) (string, error) {
+	return ForFile(filename, sha1.New())
+}
+
 // ForFile returns the hex-encoded hash for the provided filename and hasher.
 func ForFile(filename string, hasher hash.Hash) (string, error) {
 	if hasher == nil {
@@ -46,7 +53,7 @@ func ForFile(filename string, hasher hash.Hash) (string, error) {
 
 	f, err := os.Open(filename)
 	if err != nil {
-		return "", errors.Wrapf(err, "open file %s", filename)
+		return "", fmt.Errorf("open file %s: %w", filename, err)
 	}
 	defer func() {
 		if err := f.Close(); err != nil {
@@ -56,7 +63,7 @@ func ForFile(filename string, hasher hash.Hash) (string, error) {
 
 	hasher.Reset()
 	if _, err := io.Copy(hasher, f); err != nil {
-		return "", errors.Wrapf(err, "hash file %s", filename)
+		return "", fmt.Errorf("hash file %s: %w", filename, err)
 	}
 
 	return hex.EncodeToString(hasher.Sum(nil)), nil
