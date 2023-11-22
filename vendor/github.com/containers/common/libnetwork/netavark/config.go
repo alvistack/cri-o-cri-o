@@ -57,6 +57,17 @@ func (n *netavarkNetwork) NetworkUpdate(name string, options types.NetworkUpdate
 	if err != nil {
 		return err
 	}
+	// Nameservers must be IP Addresses.
+	for _, dnsServer := range options.AddDNSServers {
+		if net.ParseIP(dnsServer) == nil {
+			return fmt.Errorf("unable to parse ip %s specified in AddDNSServer: %w", dnsServer, types.ErrInvalidArg)
+		}
+	}
+	for _, dnsServer := range options.RemoveDNSServers {
+		if net.ParseIP(dnsServer) == nil {
+			return fmt.Errorf("unable to parse ip %s specified in RemoveDNSServer: %w", dnsServer, types.ErrInvalidArg)
+		}
+	}
 	networkDNSServersBefore := network.NetworkDNSServers
 	networkDNSServersAfter := []string{}
 	for _, server := range networkDNSServersBefore {
@@ -272,6 +283,11 @@ func createMacvlan(network *types.Network) error {
 			_, err := internalutil.ParseMTU(value)
 			if err != nil {
 				return err
+			}
+		case types.BclimOption:
+			_, err := strconv.ParseInt(value, 10, 32)
+			if err != nil {
+				return fmt.Errorf("failed to parse %q option: %w", key, err)
 			}
 		default:
 			return fmt.Errorf("unsupported macvlan network option %s", key)
