@@ -688,6 +688,8 @@ github.com/alecthomas/units v0.0.0-20190717042225-c3de453c63f4/go.mod h1:ybxpYRF
 github.com/alecthomas/units v0.0.0-20190924025748-f65c72e2690d/go.mod h1:rBZYJk541a8SKzHPHnH3zbiI+7dagKZ0cgpgrD7Fyho=
 github.com/alecthomas/units v0.0.0-20211218093645-b94a6e3cc137/go.mod h1:OMCwj8VM1Kc9e19TLln2VL61YJF0x1XFtfdL4JdbSyE=
 github.com/alexflint/go-filemutex v0.0.0-20171022225611-72bdc8eae2ae/go.mod h1:CgnQgUtFrFz9mxFNtED3jI5tLDjKlOM+oUF/sTk6ps0=
+github.com/alvistack/containers-common v0.55.5-0.20231119144331-165b7a4dd43c h1:pF6rAy9J/4Bnzbrhy5qk1thlWqSLrMgUUPf2bY9YOjw=
+github.com/alvistack/containers-common v0.55.5-0.20231119144331-165b7a4dd43c/go.mod h1:5mVCpfMBWyO+zaD7Fw+DBHFa42YFKROwle1qpEKcX3U=
 github.com/andybalholm/brotli v1.0.4/go.mod h1:fO7iG3H7G2nSZ7m0zPUDn85XEX2GTukHGRSepvi9Eig=
 github.com/anmitsu/go-shlex v0.0.0-20200514113438-38f4b401e2be h1:9AeTilPcZAjCFIImctFaOjnTIavg87rW78vTPkQqLI8=
 github.com/antihax/optional v1.0.0/go.mod h1:uupD/76wgC+ih3iEmQUL+0Ugr19nfwCT1kdvxnR2qWY=
@@ -900,8 +902,6 @@ github.com/containernetworking/plugins v1.3.0 h1:QVNXMT6XloyMUoO2wUOqWTC1hWFV62Q
 github.com/containernetworking/plugins v1.3.0/go.mod h1:Pc2wcedTQQCVuROOOaLBPPxrEXqqXBFt3cZ+/yVg6l0=
 github.com/containers/buildah v1.31.2 h1:Pfbuzq5dtbLYtj95zDu1rLbVo9bnboknv18ZmlfXVA4=
 github.com/containers/buildah v1.31.2/go.mod h1:EnrujxgRtUi0+2DrxXAzyQ/GybLliqT0+06PMLSTlvw=
-github.com/containers/common v0.55.3 h1:mhNQRU4OgW1wpmmKMFSYRn42+hr8SEVSPFdKML3WZik=
-github.com/containers/common v0.55.3/go.mod h1:ZKPllYOZ2xj2rgWRdnHHVvWg6ru4BT28En8mO8DMMPk=
 github.com/containers/conmon v2.0.20+incompatible h1:YbCVSFSCqFjjVwHTPINGdMX1F6JXHGTUje2ZYobNrkg=
 github.com/containers/conmon v2.0.20+incompatible/go.mod h1:hgwZ2mtuDrppv78a/cOBNiCm6O0UMWGx1mu7P00nu5I=
 github.com/containers/conmon-rs v0.5.1 h1:Qquw9pE0KOeJkb3MhuUIFTvUzI08m9f4SpkuSY0kVSs=

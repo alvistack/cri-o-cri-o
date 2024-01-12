@@ -20,7 +20,7 @@ require (
 	github.com/containernetworking/cni v1.1.2
 	github.com/containernetworking/plugins v1.3.0
 	github.com/containers/buildah v1.31.2
-	github.com/containers/common v0.55.3
+	github.com/containers/common v0.55.5-0.20231119144331-165b7a4dd43c
 	github.com/containers/conmon v2.0.20+incompatible
 	github.com/containers/conmon-rs v0.5.1
 	github.com/containers/image/v5 v5.27.0
@@ -283,3 +283,5 @@ replace (
 	k8s.io/pod-security-admission => k8s.io/kubernetes/staging/src/k8s.io/pod-security-admission v0.0.0-20230815101549-855e7c48de73
 	k8s.io/sample-apiserver => k8s.io/kubernetes/staging/src/k8s.io/sample-apiserver v0.0.0-20230815101549-855e7c48de73
 )
+
+replace github.com/containers/common v0.55.5-0.20231119144331-165b7a4dd43c => github.com/alvistack/containers-common v0.55.5-0.20231119144331-165b7a4dd43c
