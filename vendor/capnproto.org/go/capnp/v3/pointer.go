@@ -2,6 +2,9 @@ package capnp
 
 import (
 	"bytes"
+
+	"capnproto.org/go/capnp/v3/exc"
+	"capnproto.org/go/capnp/v3/internal/str"
 )
 
 // A Ptr is a reference to a Cap'n Proto struct, list, or interface.
@@ -212,11 +215,11 @@ var _ TypeParam[Ptr] = Ptr{}
 func unmarshalDefault(def []byte) (Ptr, error) {
 	msg, err := Unmarshal(def)
 	if err != nil {
-		return Ptr{}, annotatef(err, "read default")
+		return Ptr{}, exc.WrapError("read default", err)
 	}
 	p, err := msg.Root()
 	if err != nil {
-		return Ptr{}, annotatef(err, "read default")
+		return Ptr{}, exc.WrapError("read default", err)
 	}
 	return p, nil
 }
@@ -266,21 +269,21 @@ func isZeroFilled(b []byte) bool {
 //
 // Equality is defined to be:
 //
-//	- Two structs are equal iff all of their fields are equal.  If one
-//	  struct has more fields than the other, the extra fields must all be
-//		zero.
-//	- Two lists are equal iff they have the same length and their
-//	  corresponding elements are equal.  If one list is a list of
-//	  primitives and the other is a list of structs, then the list of
-//	  primitives is treated as if it was a list of structs with the
-//	  element value as the sole field.
-//	- Two interfaces are equal iff they point to a capability created by
-//	  the same call to NewClient or they are referring to the same
-//	  capability table index in the same message.  The latter is
-//	  significant when the message's capability table has not been
-//	  populated.
-//	- Two null pointers are equal.
-//	- All other combinations of things are not equal.
+//   - Two structs are equal iff all of their fields are equal.  If one
+//     struct has more fields than the other, the extra fields must all be
+//     zero.
+//   - Two lists are equal iff they have the same length and their
+//     corresponding elements are equal.  If one list is a list of
+//     primitives and the other is a list of structs, then the list of
+//     primitives is treated as if it was a list of structs with the
+//     element value as the sole field.
+//   - Two interfaces are equal iff they point to a capability created by
+//     the same call to NewClient or they are referring to the same
+//     capability table index in the same message.  The latter is
+//     significant when the message's capability table has not been
+//     populated.
+//   - Two null pointers are equal.
+//   - All other combinations of things are not equal.
 func Equal(p1, p2 Ptr) (bool, error) {
 	if !p1.IsValid() && !p2.IsValid() {
 		return true, nil
@@ -324,11 +327,11 @@ func Equal(p1, p2 Ptr) (bool, error) {
 		for i := 0; i < n; i++ {
 			sp1, err := s1.Ptr(uint16(i))
 			if err != nil {
-				return false, annotatef(err, "equal")
+				return false, exc.WrapError("equal", err)
 			}
 			sp2, err := s2.Ptr(uint16(i))
 			if err != nil {
-				return false, annotatef(err, "equal")
+				return false, exc.WrapError("equal", err)
 			}
 			if ok, err := Equal(sp1, sp2); !ok || err != nil {
 				return false, err
@@ -361,7 +364,7 @@ func Equal(p1, p2 Ptr) (bool, error) {
 		for i := 0; i < l1.Len(); i++ {
 			e1, e2 := l1.Struct(i), l2.Struct(i)
 			if ok, err := Equal(e1.ToPtr(), e2.ToPtr()); err != nil {
-				return false, annotatef(err, "equal: list element %d", i)
+				return false, exc.WrapError("equal: list element "+str.Itod(i), err)
 			} else if !ok {
 				return false, nil
 			}
@@ -373,8 +376,8 @@ func Equal(p1, p2 Ptr) (bool, error) {
 			if i1.Capability() == i2.Capability() {
 				return true, nil
 			}
-			ntab := len(i1.Message().CapTable)
-			if int64(i1.Capability()) >= int64(ntab) || int64(i2.Capability()) >= int64(ntab) {
+
+			if !i1.Message().CapTable().Contains(i1) || !i1.Message().CapTable().Contains(i2) {
 				return false, nil
 			}
 		}

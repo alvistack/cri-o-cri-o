@@ -1,0 +1,75 @@
+#!/usr/bin/make -f
+
+SHELL := /bin/bash
+
+override_dh_auto_build:
+	mkdir -p bin
+	set -ex && \
+		export CGO_ENABLED=1 && \
+		go build \
+			-mod vendor -buildmode pie -v \
+			-ldflags "-s -w" \
+			-tags "netgo osusergo exclude_graphdriver_devicemapper exclude_graphdriver_btrfs containers_image_openpgp seccomp apparmor" \
+			-o ./bin/crio ./cmd/crio && \
+		go build \
+			-mod vendor -buildmode pie -v \
+			-ldflags "-s -w" \
+			-tags "netgo osusergo exclude_graphdriver_devicemapper exclude_graphdriver_btrfs containers_image_openpgp seccomp apparmor" \
+			-o ./bin/crio-status ./cmd/crio-status && \
+		make bin/pinns
+	./bin/crio --config="" --config-dir "" \
+		--apparmor-profile "crio-default" \
+		--cni-config-dir "/etc/cni/net.d" \
+		--cni-plugin-dir "/usr/local/libexec/cni" \
+		--cni-plugin-dir "/usr/libexec/cni" \
+		--cni-plugin-dir "/usr/local/lib/cni" \
+		--cni-plugin-dir "/usr/lib/cni" \
+		--cni-plugin-dir "/opt/cni/bin" \
+		--conmon-cgroup "system.slice" \
+		--conmon-env "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
+		--conmon-env "TERM=xterm" \
+		--decryption-keys-path "/etc/crio/keys" \
+		--default-capabilities "AUDIT_WRITE" \
+		--default-capabilities "CHOWN" \
+		--default-capabilities "DAC_OVERRIDE" \
+		--default-capabilities "FOWNER" \
+		--default-capabilities "FSETID" \
+		--default-capabilities "KILL" \
+		--default-capabilities "MKNOD" \
+		--default-capabilities "NET_BIND_SERVICE" \
+		--default-capabilities "NET_RAW" \
+		--default-capabilities "SETFCAP" \
+		--default-capabilities "SETGID" \
+		--default-capabilities "SETPCAP" \
+		--default-capabilities "SETUID" \
+		--default-capabilities "SYS_CHROOT" \
+		--pause-image "registry.k8s.io/pause:3.10" \
+		--root "/var/lib/containers/storage" \
+		--runroot "/run/containers/storage" \
+		--seccomp-profile "/usr/share/containers/seccomp.json" \
+		--storage-driver "overlay" \
+		--storage-opt "overlay.mount_program=/usr/bin/fuse-overlayfs" \
+		--storage-opt "overlay.mountopt=nodev" \
+		--version-file "/var/run/crio/version" \
+		--version-file-persist "/var/run/crio/version" \
+		config > crio.conf
+
+override_dh_auto_install:
+	install -Dpm755 -d debian/tmp/etc/default
+	install -Dpm755 -d debian/tmp/usr/bin
+	install -Dpm755 -T contrib/sysconfig/crio debian/tmp/etc/default/crio
+	install -Dpm755 -t debian/tmp/usr/bin bin/crio
+	install -Dpm755 -t debian/tmp/usr/bin bin/crio-status
+	install -Dpm755 -t debian/tmp/usr/bin bin/pinns
+	DESTDIR=debian/tmp \
+	PREFIX=debian/tmp/usr \
+		make install.completions install.config-nobuild
+	PREFIX=debian/tmp \
+		make install.systemd
+
+override_dh_auto_test:
+
+override_dh_auto_clean:
+
+%:
+	dh $@
