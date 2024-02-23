@@ -4,13 +4,13 @@ package server // import "capnproto.org/go/capnp/v3/server"
 
 import (
 	"context"
-	"fmt"
 	"sort"
 	"sync"
 
 	"capnproto.org/go/capnp/v3"
 	"capnproto.org/go/capnp/v3/exc"
 	"capnproto.org/go/capnp/v3/exp/mpsc"
+	"capnproto.org/go/capnp/v3/internal/str"
 )
 
 // A Method describes a single capability method on a server object.
@@ -25,7 +25,7 @@ type Call struct {
 	ctx    context.Context
 	method *Method
 	recv   capnp.Recv
-	aq     *answerQueue
+	aq     *capnp.AnswerQueue
 	srv    *Server
 
 	alloced bool
@@ -53,22 +53,23 @@ func (c *Call) AllocResults(sz capnp.ObjectSize) (capnp.Struct, error) {
 	return c.results, err
 }
 
-// Ack is a function that is called to acknowledge the delivery of the
-// RPC call, allowing other RPC methods to be called on the server.
-// After the first call, subsequent calls to Ack do nothing.
+// Go is a function that is called to unblock future calls; by default
+// a server only accepts one method call at a time, waiting until
+// the method returns before servicing the next method in the queue.
+// calling Go spawns another goroutine to service additional Calls
+// in the queue, allowing the current goroutine to block, do expensive
+// computation, etc. without holding up other calls. If Go is called,
+// the calling Goroutine exits when the method returns, so that there
+// is never more than one goroutine pulling things from the queue.
 //
-// Ack need not be the first call in a function nor is it required.
-// Since the function's return is also an acknowledgment of delivery,
-// short functions can return without calling Ack.  However, since
-// the server will not return an Answer until the delivery is
-// acknowledged, failure to acknowledge a call before waiting on an
-// RPC may cause deadlocks.
-func (c *Call) Ack() {
+// Go need not be the first call in a function nor is it required.
+// short functions can return without calling Go.
+func (c *Call) Go() {
 	if c.acked {
 		return
 	}
 	c.acked = true
-	go c.srv.handleCalls(c.srv.handleCallsCtx)
+	go c.srv.handleCalls()
 }
 
 // Shutdowner is the interface that wraps the Shutdown method.
@@ -80,17 +81,8 @@ type Shutdowner interface {
 // capnp.ClientHook interface.
 type Server struct {
 	methods  sortedMethods
-	brand    interface{}
+	brand    any
 	shutdown Shutdowner
-
-	// Cancels handleCallsCtx
-	cancelHandleCalls context.CancelFunc
-
-	// Context used by the goroutine running handleCalls(). Note
-	// the calls themselves will have different contexts, which
-	// are not children of this context, but are supplied by
-	// start().
-	handleCallsCtx context.Context
 
 	// wg is incremented each time a method is queued, and
 	// decremented after it is handled.
@@ -99,57 +91,69 @@ type Server struct {
 	// Calls are inserted into this queue, to be handled
 	// by a goroutine running handleCalls()
 	callQueue *mpsc.Queue[*Call]
+
+	// Handler for custom behavior of unknown methods
+	HandleUnknownMethod func(m capnp.Method) *Method
+
+	// Arena implementation
+	NewArena func() capnp.Arena
+}
+
+func (s *Server) String() string {
+	return "*Server@0x" + str.PtrToHex(s)
 }
 
 // New returns a client hook that makes calls to a set of methods.
 // If shutdown is nil then the server's shutdown is a no-op.  The server
 // guarantees message delivery order by blocking each call on the
-// return or acknowledgment of the previous call.  See Call.Ack for more
-// details.
-func New(methods []Method, brand interface{}, shutdown Shutdowner) *Server {
-	ctx, cancel := context.WithCancel(context.Background())
-
+// return of the previous call or a call to Call.Go.
+func New(methods []Method, brand any, shutdown Shutdowner) *Server {
 	srv := &Server{
-		methods:           make(sortedMethods, len(methods)),
-		brand:             brand,
-		shutdown:          shutdown,
-		callQueue:         mpsc.New[*Call](),
-		cancelHandleCalls: cancel,
-		handleCallsCtx:    ctx,
+		methods:   make(sortedMethods, len(methods)),
+		brand:     brand,
+		shutdown:  shutdown,
+		callQueue: mpsc.New[*Call](),
 	}
 	copy(srv.methods, methods)
 	sort.Sort(srv.methods)
-	go srv.handleCalls(ctx)
+	go srv.handleCalls()
 	return srv
 }
 
 // Send starts a method call.
 func (srv *Server) Send(ctx context.Context, s capnp.Send) (*capnp.Answer, capnp.ReleaseFunc) {
 	mm := srv.methods.find(s.Method)
+	if mm == nil && srv.HandleUnknownMethod != nil {
+		mm = srv.HandleUnknownMethod(s.Method)
+	}
 	if mm == nil {
 		return capnp.ErrorAnswer(s.Method, capnp.Unimplemented("unimplemented")), func() {}
 	}
-	args, err := sendArgsToStruct(s)
+	args, err := srv.sendArgsToStruct(s)
 	if err != nil {
 		return capnp.ErrorAnswer(mm.Method, err), func() {}
 	}
-	ret := new(structReturner)
-	return ret.answer(mm.Method, srv.start(ctx, mm, capnp.Recv{
+	ret := new(capnp.StructReturner)
+	pcaller := srv.start(ctx, mm, capnp.Recv{
 		Method: mm.Method, // pick up names from server method
 		Args:   args,
 		ReleaseArgs: func() {
 			if msg := args.Message(); msg != nil {
-				msg.Reset(nil)
+				msg.Release()
 				args = capnp.Struct{}
 			}
 		},
 		Returner: ret,
-	}))
+	})
+	return ret.Answer(mm.Method, pcaller)
 }
 
 // Recv starts a method call.
 func (srv *Server) Recv(ctx context.Context, r capnp.Recv) capnp.PipelineCaller {
 	mm := srv.methods.find(r.Method)
+	if mm == nil && srv.HandleUnknownMethod != nil {
+		mm = srv.HandleUnknownMethod(r.Method)
+	}
 	if mm == nil {
 		r.Reject(capnp.Unimplemented("unimplemented"))
 		return nil
@@ -157,67 +161,48 @@ func (srv *Server) Recv(ctx context.Context, r capnp.Recv) capnp.PipelineCaller 
 	return srv.start(ctx, mm, r)
 }
 
-func (srv *Server) handleCalls(ctx context.Context) {
+func (srv *Server) handleCalls() {
+	ctx := context.Background()
 	for {
 		call, err := srv.callQueue.Recv(ctx)
 		if err != nil {
-			break
+			// Queue closed; wait for outstanding calls and shut down.
+			if srv.shutdown != nil {
+				srv.wg.Wait()
+				srv.shutdown.Shutdown()
+			}
+			return
 		}
 
-		// The context for the individual call is not necessarily
-		// related to the context managing the server's lifetime
-		// (ctx); we need to monitor both and pass the call a
-		// context that will be canceled if *either* context is
-		// cancelled.
-		callCtx, cancelCall := context.WithCancel(call.ctx)
-		go func() {
-			defer cancelCall()
-			select {
-			case <-callCtx.Done():
-			case <-ctx.Done():
-			}
-		}()
-		func() {
-			defer cancelCall()
-			srv.handleCall(callCtx, call)
-		}()
-
+		srv.handleCall(call)
 		if call.acked {
 			// Another goroutine has taken over; time
 			// to retire.
 			return
 		}
 	}
-	for {
-		// Context has been canceled; drain the rest of the queue,
-		// invoking handleCall() with the cancelled context to
-		// trigger cleanup.
-		call, ok := srv.callQueue.TryRecv()
-		if !ok {
-			return
-		}
-		srv.handleCall(ctx, call)
-	}
 }
 
-func (srv *Server) handleCall(ctx context.Context, c *Call) {
+func (srv *Server) handleCall(c *Call) {
 	defer srv.wg.Done()
 
-	err := c.method.Impl(ctx, c)
+	err := c.method.Impl(c.ctx, c)
 
 	c.recv.ReleaseArgs()
+	c.recv.Returner.PrepareReturn(err)
 	if err == nil {
-		c.aq.fulfill(c.results)
+		c.aq.Fulfill(c.results.ToPtr())
 	} else {
-		c.aq.reject(err)
+		c.aq.Reject(err)
 	}
-	c.recv.Returner.Return(err)
+	c.recv.Returner.Return()
+	c.recv.Returner.ReleaseResults()
 }
 
 func (srv *Server) start(ctx context.Context, m *Method, r capnp.Recv) capnp.PipelineCaller {
 	srv.wg.Add(1)
 
-	aq := newAnswerQueue(r.Method)
+	aq := capnp.NewAnswerQueue(r.Method)
 	srv.callQueue.Send(&Call{
 		ctx:    ctx,
 		method: m,
@@ -233,53 +218,48 @@ func (srv *Server) Brand() capnp.Brand {
 	return capnp.Brand{Value: serverBrand{srv.brand}}
 }
 
-// Shutdown waits for ongoing calls to finish and calls Shutdown on the
-// Shutdowner passed into NewServer.  Shutdown must not be called more
-// than once.
+// Shutdown arranges for Shutdown to be called on the Shutdowner passed
+// into NewServer after outstanding all calls have been serviced.
+// Shutdown must not be called more than once.
 func (srv *Server) Shutdown() {
-	srv.cancelHandleCalls()
-	srv.wg.Wait()
-	if srv.shutdown != nil {
-		srv.shutdown.Shutdown()
-	}
+	srv.callQueue.Close()
 }
 
 // IsServer reports whether a brand returned by capnp.Client.Brand
 // originated from Server.Brand, and returns the brand argument passed
 // to New.
-func IsServer(brand capnp.Brand) (_ interface{}, ok bool) {
+func IsServer(brand capnp.Brand) (_ any, ok bool) {
 	sb, ok := brand.Value.(serverBrand)
 	return sb.x, ok
 }
 
 type serverBrand struct {
-	x interface{}
+	x any
 }
 
-func sendArgsToStruct(s capnp.Send) (capnp.Struct, error) {
+func (srv *Server) sendArgsToStruct(s capnp.Send) (capnp.Struct, error) {
 	if s.PlaceArgs == nil {
 		return capnp.Struct{}, nil
 	}
-	st, err := newBlankStruct(s.ArgsSize)
+
+	if srv.NewArena == nil {
+		srv.NewArena = func() capnp.Arena {
+			// TODO:  change to single segment?
+			return capnp.MultiSegment(nil)
+		}
+	}
+
+	_, seg, err := capnp.NewMessage(srv.NewArena())
+	if err != nil {
+		return capnp.Struct{}, err
+	}
+	st, err := capnp.NewRootStruct(seg, s.ArgsSize)
 	if err != nil {
 		return capnp.Struct{}, err
 	}
 	if err := s.PlaceArgs(st); err != nil {
-		st.Message().Reset(nil)
-		// Using fmt.Errorf to ensure sendArgsToStruct returns a generic error.
-		return capnp.Struct{}, fmt.Errorf("place args: %w", err)
-	}
-	return st, nil
-}
-
-func newBlankStruct(sz capnp.ObjectSize) (capnp.Struct, error) {
-	_, seg, err := capnp.NewMessage(capnp.MultiSegment(nil))
-	if err != nil {
-		return capnp.Struct{}, err
-	}
-	st, err := capnp.NewRootStruct(seg, sz)
-	if err != nil {
-		return capnp.Struct{}, err
+		st.Message().Release()
+		return capnp.Struct{}, exc.WrapError("place args", err)
 	}
 	return st, nil
 }
@@ -320,14 +300,6 @@ func (sm sortedMethods) Swap(i, j int) {
 	sm[i], sm[j] = sm[j], sm[i]
 }
 
-type resultsAllocer interface {
-	AllocResults(capnp.ObjectSize) (capnp.Struct, error)
-}
-
 func newError(msg string) error {
 	return exc.New(exc.Failed, "capnp server", msg)
-}
-
-func errorf(format string, args ...interface{}) error {
-	return newError(fmt.Sprintf(format, args...))
 }
